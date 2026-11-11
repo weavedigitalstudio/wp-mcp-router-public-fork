@@ -21,7 +21,8 @@ import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
-import type { FleetConfig } from "./config.js";
+import { statSync } from "node:fs";
+import { loadConfig, type FleetConfig } from "./config.js";
 import { Catalog, EXECUTE_TOOL } from "./catalog.js";
 import { compactResult } from "./compact.js";
 import * as audit from "./audit.js";
@@ -96,9 +97,30 @@ export function unknownToolArgs(
   };
 }
 
-export function buildServer(config: FleetConfig): Server {
+export interface BuildOptions {
+  /**
+   * Path of the registry file the config came from. When given, the server
+   * re-reads it whenever its modification time changes, so a site added or
+   * re-credentialed by another process is live on the next tool call without
+   * restarting the MCP client. Omit for an env-var registry.
+   */
+  configPath?: string;
+}
+
+/** Modification time of a file, or undefined when it can't be read. */
+function mtimeOf(path: string): number | undefined {
+  try {
+    return statSync(path).mtimeMs;
+  } catch {
+    return undefined;
+  }
+}
+
+export function buildServer(config: FleetConfig, opts: BuildOptions = {}): Server {
   const catalog = new Catalog(config);
   const rules = new SiteRules(config, catalog);
+  // Mutated in place on reload: siteEnum below holds this same array, so the
+  // tool schemas pick up a new site id without being rebuilt.
   const siteIds = config.sites.map((s) => s.id);
   const siteEnum = { type: "string" as const, enum: siteIds, description: "Target site id." };
 
@@ -111,8 +133,47 @@ export function buildServer(config: FleetConfig): Server {
 
   const server = new Server(
     { name: "wp-mcp-router", version: "0.1.0" },
-    { capabilities: { tools: {} } },
+    { capabilities: { tools: { listChanged: true } } },
   );
+
+  // Hot reload of the registry. The router used to read sites.json once at
+  // start, so a site connected from another shell stayed invisible until the
+  // MCP client restarted the server, which some hosts (T3 Code) cannot do from
+  // inside a session. A stat per tool call is cheap; a parse only happens when
+  // the file changed. A half-written or invalid file keeps the old config.
+  let lastMtime = opts.configPath ? mtimeOf(opts.configPath) : undefined;
+  const reloadIfChanged = async (): Promise<void> => {
+    if (!opts.configPath) return;
+    const mtime = mtimeOf(opts.configPath);
+    if (mtime === undefined || mtime === lastMtime) return;
+    let fresh: FleetConfig;
+    try {
+      fresh = loadConfig().config;
+    } catch (err) {
+      process.stderr.write(`wp-mcp-router: registry changed but did not load, keeping the old one: ${(err as Error).message}\n`);
+      return;
+    }
+    lastMtime = mtime;
+    const before = new Map(config.sites.map((s) => [s.id, JSON.stringify(s)]));
+    const after = new Map(fresh.sites.map((s) => [s.id, JSON.stringify(s)]));
+    for (const [id, old] of before) {
+      if (after.get(id) !== old) {
+        catalog.forget(id);
+        rules.reset(id);
+      }
+    }
+    Object.assign(config, fresh);
+    const idsChanged = siteIds.join("\n") !== fresh.sites.map((s) => s.id).join("\n");
+    siteIds.splice(0, siteIds.length, ...fresh.sites.map((s) => s.id));
+    process.stderr.write(`wp-mcp-router: registry reloaded — ${siteIds.length} site(s)\n`);
+    if (idsChanged) {
+      try {
+        await server.sendToolListChanged();
+      } catch {
+        /* not connected yet, or the client ignores it: the enum is current either way */
+      }
+    }
+  };
 
   const tools = [
     {
@@ -211,11 +272,15 @@ export function buildServer(config: FleetConfig): Server {
     },
   ];
 
-  server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools }));
+  server.setRequestHandler(ListToolsRequestSchema, async () => {
+    await reloadIfChanged();
+    return { tools };
+  });
 
   server.setRequestHandler(CallToolRequestSchema, async (req) => {
     const { name, arguments: rawArgs } = req.params;
     const args = (rawArgs ?? {}) as Record<string, unknown>;
+    await reloadIfChanged();
 
     // Every tool call is timed and audited in the request path — no invocation
     // can bypass the log. record() is a no-op when WP_MCP_ROUTER_AUDIT=off.

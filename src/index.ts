@@ -7,18 +7,29 @@
  *   wp-mcp-router add-site [url]   → connect a WordPress site via the browser
  *                                    (Application Passwords authorize flow)
  *   wp-mcp-router connect-batch <f> → walk a secret-free site template, connecting each
- *   wp-mcp-router export           → print the registry for a secret store
+ *   wp-mcp-router connect-remote <url> --id <id> [--label <l>] [--user <login>]
+                                 [--password-file <file>]
+                                 For a router on a machine nobody is sitting at.
+                                 Without --password-file, prints the approval
+                                 link to open on any computer. With it, checks
+                                 the password against the site and saves it
+                                 only if it works (old registry kept as .bak).
+                                 --user defaults to weave_admin.
+  --no-browser                   Never open a browser (add-site, connect-batch);
+                                 the URL is printed instead.
+  wp-mcp-router export           → print the registry for a secret store
  *   wp-mcp-router install [client] → inject the server into Claude / Cursor config
  *   wp-mcp-router --doctor         → hit every site, report ability counts, exit
  *   wp-mcp-router --help           → usage
  */
 
+import { existsSync } from "node:fs";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { loadConfig } from "./config.js";
 import { buildServer } from "./server.js";
 import { Catalog } from "./catalog.js";
 import { auditStatus } from "./audit.js";
-import { addSite, connectBatch, exportRegistry, install, setup, selfCmd, ensureIo } from "./setup.js";
+import { addSite, connectBatch, connectRemote, exportRegistry, install, setup, selfCmd, ensureIo } from "./setup.js";
 import { REQUIRED_PLUGIN, ensurePlugin, probePlugin } from "./adapter.js";
 
 const HELP = `wp-mcp-router — one MCP connection for a fleet of WordPress sites
@@ -103,6 +114,7 @@ async function main() {
   const args = process.argv.slice(2);
   const cmd = args.find((a) => !a.startsWith("-"));
 
+  if (args.includes("--no-browser")) process.env.WP_MCP_ROUTER_NO_BROWSER = "1";
   if (args.includes("--help") || args.includes("-h") || cmd === "help") {
     process.stdout.write(HELP);
     process.exit(0);
@@ -118,6 +130,23 @@ async function main() {
     const url = args.filter((a) => !a.startsWith("-"))[1];
     process.exit(await addSite(url));
   }
+  if (cmd === "connect-remote") {
+    const flag = (name: string): string | undefined => {
+      const i = args.indexOf(name);
+      return i >= 0 && args[i + 1] && !args[i + 1].startsWith("--") ? args[i + 1] : undefined;
+    };
+    // The URL is the first bare arg after the command that is not a flag's value.
+    const flagValues = new Set(["--id", "--label", "--user", "--password-file"].map(flag).filter(Boolean));
+    const url = args.filter((a) => !a.startsWith("-") && a !== cmd && !flagValues.has(a))[0];
+    process.exit(
+      await connectRemote(url, {
+        id: flag("--id"),
+        label: flag("--label"),
+        user: flag("--user"),
+        passwordFile: flag("--password-file"),
+      }),
+    );
+  }
   if (cmd === "connect-batch") {
     const template = args.filter((a) => !a.startsWith("-"))[1];
     process.exit(await connectBatch(template));
@@ -132,15 +161,18 @@ async function main() {
 
   // No recognized subcommand → run as the MCP stdio server.
   let config;
+  let source = "";
   try {
-    config = loadConfig().config;
+    ({ config, source } = loadConfig());
   } catch (err) {
     process.stderr.write(`wp-mcp-router: ${(err as Error).message}\n`);
     process.stderr.write(`\nNo sites configured yet. Run:  ${selfCmd("setup")}\n`);
     process.exit(1);
   }
 
-  const server = buildServer(config);
+  // An env-var registry has no file to watch; a file source is its path.
+  const configPath = existsSync(source) ? source : undefined;
+  const server = buildServer(config, { configPath });
   const transport = new StdioServerTransport();
   await server.connect(transport);
   process.stderr.write(`wp-mcp-router ready — ${config.sites.length} site(s): ${config.sites.map((s) => s.id).join(", ")}\n`);

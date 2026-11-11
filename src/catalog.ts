@@ -100,6 +100,19 @@ export class Catalog {
 
   constructor(private readonly config: FleetConfig) {}
 
+  /**
+   * Drop everything held for a site (client session, ability catalog, ability
+   * info), so the next call uses its current registry entry. Used when the
+   * registry is reloaded and the site's entry changed or went away.
+   */
+  forget(siteId: string): void {
+    this.clients.delete(siteId);
+    this.cache.delete(siteId);
+    for (const key of [...this.infoCache.keys()]) {
+      if (key.startsWith(`${siteId}\u0000`)) this.infoCache.delete(key);
+    }
+  }
+
   client(siteId: string): WpClient {
     let c = this.clients.get(siteId);
     if (!c) {

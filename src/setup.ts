@@ -61,6 +61,10 @@ export function selfCmd(rest = ""): string {
 
 /** Open a URL in the user's default browser, cross-platform, no dependency. */
 function openBrowser(url: string): void {
+  // --no-browser (or WP_MCP_ROUTER_NO_BROWSER=1): on a headless or remote
+  // machine a browser window would open where nobody sees it. The URL is
+  // always printed as well, so the step can be done on another computer.
+  if (process.env.WP_MCP_ROUTER_NO_BROWSER) return;
   const cmd =
     platform() === "darwin" ? "open" : platform() === "win32" ? "cmd" : "xdg-open";
   const args = platform() === "win32" ? ["/c", "start", "", url] : [url];
@@ -525,6 +529,114 @@ async function connectOne(siteUrl: string, opts: ConnectOptions = {}): Promise<C
   // which is provisioned per site by a human via WP-CLI.
 
   return outcome;
+}
+
+/* ------------------------------------------------------- connect-remote -- */
+
+/** The authorize page that shows a generated password on screen (no callback). */
+export function approvalUrl(siteUrl: string): string {
+  return (
+    `${siteUrl}/wp-admin/authorize-application.php` +
+    `?app_name=${encodeURIComponent(APP_NAME)}` +
+    `&app_id=${randomUUID()}`
+  );
+}
+
+export interface RemoteOptions {
+  id?: string;
+  label?: string;
+  /** WordPress login the password belongs to. Default weave_admin. */
+  user?: string;
+  /** File holding the application password. Without it, print the link only. */
+  passwordFile?: string;
+}
+
+/**
+ * `wp-mcp-router connect-remote <url> --id <id> [--label <l>] [--user <login>]
+ *  [--password-file <file>]`
+ *
+ * For a router running on a machine nobody is sitting at. Nothing opens a
+ * browser and nothing prompts:
+ *   1. Without --password-file it prints the approval link. Open it on any
+ *      computer, approve, and WordPress shows the password.
+ *   2. With --password-file it reads the password from that file (so it never
+ *      sits in a command line or shell history), checks it against the MCP
+ *      endpoint, and only then writes the registry, keeping a .bak of the old
+ *      file. A credential that does not work is never saved.
+ * A running router picks the change up on its next tool call (hot reload).
+ */
+export async function connectRemote(argUrl: string | undefined, opts: RemoteOptions = {}): Promise<number> {
+  if (!argUrl) {
+    log(`Usage: ${selfCmd("connect-remote <url> --id <id> [--label <label>] [--user <login>] [--password-file <file>]")}`);
+    return 2;
+  }
+  let siteUrl: string;
+  try {
+    siteUrl = normalizeSiteUrl(argUrl);
+  } catch (err) {
+    log(`✗ ${(err as Error).message}`);
+    return 2;
+  }
+  const id = opts.id || siteIdFrom(siteUrl);
+
+  if (!opts.passwordFile) {
+    log(`Approve the connection for "${id}" on any computer:`);
+    log();
+    process.stdout.write(approvalUrl(siteUrl) + "\n");
+    log();
+    log("Then save the password WordPress shows into a file, and run:");
+    log(`  ${selfCmd(`connect-remote ${siteUrl} --id ${id} --password-file <file>`)}`);
+    return 0;
+  }
+
+  let password: string;
+  try {
+    password = readFileSync(opts.passwordFile, "utf8").trim();
+  } catch (err) {
+    log(`✗ Could not read the password file: ${(err as Error).message}`);
+    return 1;
+  }
+  if (!looksLikeAppPassword(password)) {
+    log("✗ The file does not hold an application password (24 letters and digits, spaced in fours or not).");
+    return 1;
+  }
+  const username = (opts.user || "weave_admin").trim();
+
+  log(`Checking the credential against ${siteUrl} …`);
+  try {
+    const c = new WpClient(
+      { id, url: siteUrl, endpoint: siteUrl + DEFAULT_MCP_PATH, username, appPassword: password } as SiteConfig,
+      30_000,
+      25_000,
+    );
+    await c.listTools();
+  } catch (err) {
+    log(`✗ MCP check failed, nothing saved: ${(err as Error).message}`);
+    log("  Check the login (--user), that mcp-adapter is active, and that the password was copied whole.");
+    return 1;
+  }
+
+  const registryPath = defaultRegistryPath();
+  const reg = readRegistry(registryPath);
+  if (existsSync(registryPath)) {
+    writeFileSync(registryPath + ".bak", readFileSync(registryPath), { mode: 0o600 });
+  }
+  const site: Partial<SiteConfig> = {
+    id,
+    label: opts.label || new URL(siteUrl).host,
+    url: siteUrl,
+    username,
+    appPassword: password,
+  };
+  const idx = reg.sites.findIndex((s) => s.id === id || s.url === siteUrl);
+  if (idx >= 0) reg.sites[idx] = { ...reg.sites[idx], ...site };
+  else reg.sites.push(site);
+  if (!reg.defaultSite) reg.defaultSite = id;
+  writeRegistry(registryPath, reg);
+
+  log(`✓ "${id}" works and is saved to ${registryPath} (previous copy at ${registryPath}.bak).`);
+  log("  Running routers pick it up on their next tool call.");
+  return 0;
 }
 
 /* ------------------------------------------------------------- add-site -- */

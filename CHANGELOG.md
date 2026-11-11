@@ -1,6 +1,28 @@
 # Changelog
 
-## Unreleased
+## 0.5.8: sites can be added from another computer, and open sessions see them
+
+- **A running router now picks up registry changes on its next tool call.** It
+  read `sites.json` once at start, so a site connected from another shell
+  stayed invisible until the MCP client restarted the server. T3 Code's
+  `/mcp` reconnect did not restart the router a session was using
+  (reset-network.org, 12 November 2026). The router now checks the file's
+  modification time on every tool call and on tool listing. A changed file is
+  reloaded: new sites appear, removed ones go, and a site whose entry changed
+  gets a fresh session and catalog. The `site` enum in the tool schemas
+  follows, and clients get `notifications/tools/list_changed` when the set of
+  ids changes. A half-written or invalid file keeps the last good registry.
+  An env-var registry (`WP_MCP_ROUTER_SITES`) is not watched.
+- **`connect-remote`, for a router on a machine nobody is sitting at.**
+  `add-site` and `connect-batch` open the approval page in a browser on the
+  machine the router runs on, which on a headless server is a window nobody
+  sees. `connect-remote <url> --id <id>` prints the approval link instead, to
+  open on any computer. Then `connect-remote <url> --id <id> --password-file
+  <file>` reads the password from a file (never the command line), checks it
+  against the site's MCP endpoint, and saves it only if it works, keeping the
+  old registry as `sites.json.bak`. `--user` defaults to `weave_admin`.
+- `--no-browser` (or `WP_MCP_ROUTER_NO_BROWSER=1`) stops `add-site` and
+  `connect-batch` opening a browser; the URL is printed as before.
 
 - **`add-site` in paste mode now catches the application password at the
   login prompt.** The steps said "Paste it below", and the first prompt below
