@@ -37,7 +37,7 @@ import { WpClient } from "./wp-client.js";
 
 // The Application Password label WordPress shows for this credential. WordPress refuses a
 // second password with the same name for the same user (since 5.7), and the fleet shares
-// weave_admin, so a fixed label made the second machine's connect fail. The machine name
+// one admin login, so a fixed label made the second machine's connect fail. The machine name
 // keeps each machine's credential distinct and revocable on its own in wp-admin.
 const APP_ID = "wp-mcp-router";
 const APP_NAME = `${APP_ID} @ ${hostname().split(".")[0]}`;
@@ -545,14 +545,14 @@ export function approvalUrl(siteUrl: string): string {
 export interface RemoteOptions {
   id?: string;
   label?: string;
-  /** WordPress login the password belongs to. Default weave_admin. */
+  /** WordPress login the password belongs to. Required when saving. */
   user?: string;
   /** File holding the application password. Without it, print the link only. */
   passwordFile?: string;
 }
 
 /**
- * `wp-mcp-router connect-remote <url> --id <id> [--label <l>] [--user <login>]
+ * `wp-mcp-router connect-remote <url> --id <id> --user <login> [--label <l>]
  *  [--password-file <file>]`
  *
  * For a router running on a machine nobody is sitting at. Nothing opens a
@@ -585,7 +585,7 @@ export async function connectRemote(argUrl: string | undefined, opts: RemoteOpti
     process.stdout.write(approvalUrl(siteUrl) + "\n");
     log();
     log("Then save the password WordPress shows into a file, and run:");
-    log(`  ${selfCmd(`connect-remote ${siteUrl} --id ${id} --password-file <file>`)}`);
+    log(`  ${selfCmd(`connect-remote ${siteUrl} --id ${id} --user <login> --password-file <file>`)}`);
     return 0;
   }
 
@@ -600,7 +600,11 @@ export async function connectRemote(argUrl: string | undefined, opts: RemoteOpti
     log("✗ The file does not hold an application password (24 letters and digits, spaced in fours or not).");
     return 1;
   }
-  const username = (opts.user || "weave_admin").trim();
+  const username = (opts.user || "").trim();
+  if (!username) {
+    log("✗ --user is required: the WordPress login that approved the connection.");
+    return 2;
+  }
 
   log(`Checking the credential against ${siteUrl} …`);
   try {

@@ -7,14 +7,14 @@
  *   wp-mcp-router add-site [url]   → connect a WordPress site via the browser
  *                                    (Application Passwords authorize flow)
  *   wp-mcp-router connect-batch <f> → walk a secret-free site template, connecting each
- *   wp-mcp-router connect-remote <url> --id <id> [--label <l>] [--user <login>]
+ *   wp-mcp-router connect-remote <url> --id <id> --user <login> [--label <l>]
                                  [--password-file <file>]
                                  For a router on a machine nobody is sitting at.
                                  Without --password-file, prints the approval
                                  link to open on any computer. With it, checks
                                  the password against the site and saves it
                                  only if it works (old registry kept as .bak).
-                                 --user defaults to weave_admin.
+                                 --user is the WordPress login that approved it.
   --no-browser                   Never open a browser (add-site, connect-batch);
                                  the URL is printed instead.
   wp-mcp-router export           → print the registry for a secret store

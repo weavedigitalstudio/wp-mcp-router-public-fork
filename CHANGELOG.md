@@ -1,12 +1,18 @@
 # Changelog
 
+## 0.5.9: connect-remote asks for the login
+
+- `connect-remote --password-file` now needs `--user`. 0.5.8 fell back to a
+  fixed login name, which is not something a public tool should assume or
+  publish. Comments and test fixtures no longer name real logins or sites.
+
 ## 0.5.8: sites can be added from another computer, and open sessions see them
 
 - **A running router now picks up registry changes on its next tool call.** It
   read `sites.json` once at start, so a site connected from another shell
   stayed invisible until the MCP client restarted the server. T3 Code's
   `/mcp` reconnect did not restart the router a session was using
-  (reset-network.org, 12 November 2026). The router now checks the file's
+  (12 November 2026). The router now checks the file's
   modification time on every tool call and on tool listing. A changed file is
   reloaded: new sites appear, removed ones go, and a site whose entry changed
   gets a fresh session and catalog. The `site` enum in the tool schemas
@@ -20,7 +26,8 @@
   open on any computer. Then `connect-remote <url> --id <id> --password-file
   <file>` reads the password from a file (never the command line), checks it
   against the site's MCP endpoint, and saves it only if it works, keeping the
-  old registry as `sites.json.bak`. `--user` defaults to `weave_admin`.
+  old registry as `sites.json.bak`.
+  `--user` is required: the router does not assume a login.
 - `--no-browser` (or `WP_MCP_ROUTER_NO_BROWSER=1`) stops `add-site` and
   `connect-batch` opening a browser; the URL is printed as before.
 

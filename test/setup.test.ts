@@ -74,7 +74,7 @@ test("an application password at the login prompt is caught, spaced or not", () 
 });
 
 test("real logins are not mistaken for an application password", () => {
-  for (const login of ["weave_admin", "admin", "gareth@weave.co.nz", "abcd efgh", "abcdefghijklmnopqrstuvwx"]) {
+  for (const login of ["site_admin", "admin", "someone@example.com", "abcd efgh", "abcdefghijklmnopqrstuvwx"]) {
     assert.equal(looksLikeAppPassword(login), false, login);
   }
 });

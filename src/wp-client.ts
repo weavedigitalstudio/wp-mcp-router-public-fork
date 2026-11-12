@@ -49,7 +49,7 @@ const INVALID_SESSION_ERROR_CODES = new Set<number>([-32602, -32005]);
 const INVALID_SESSION_ERROR_MESSAGE = "Invalid or expired session";
 const SESSION_NOT_FOUND_ERROR_MESSAGE = "Session not found";
 
-const USER_AGENT = "wp-mcp-router/0.5.8 (+https://github.com/weavedigitalstudio/wp-mcp-router)";
+const USER_AGENT = "wp-mcp-router/0.5.9 (+https://github.com/weavedigitalstudio/wp-mcp-router)";
 
 export interface JsonRpcError {
   code: number;

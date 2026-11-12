@@ -11,7 +11,7 @@ import { loadConfig } from "../src/config.js";
 /**
  * The router read sites.json once at start, so a site connected from another
  * shell stayed invisible until the MCP client restarted it, which T3 Code could
- * not do from inside a session (reset-network.org, 12 November 2026). The server
+ * not do from inside a session (12 November 2026). The server
  * now re-reads the registry when its modification time changes.
  */
 

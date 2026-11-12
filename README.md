@@ -58,7 +58,7 @@ nobody sees a browser the router opens. Use `connect-remote` instead:
 ```bash
 node dist/index.js connect-remote https://example.com --id example        # prints the approval link
 # approve on any computer, save the password it shows into a file, then:
-node dist/index.js connect-remote https://example.com --id example --password-file /path/to/pw
+node dist/index.js connect-remote https://example.com --id example --user <login> --password-file /path/to/pw
 ```
 
 It saves the credential only after the site accepts it. Running routers re-read the registry
